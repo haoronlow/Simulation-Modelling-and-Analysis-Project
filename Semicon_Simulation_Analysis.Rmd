@@ -1,0 +1,235 @@
+---
+title: "Semicon Simulation: Analysis Portion"
+author: "Group 15"
+date: '2023-04-22'
+output: 
+  html_document:
+    theme: cerulean
+---
+
+## PRELIMINARY DATA WRANGLING IN MICROSOFT EXCEL
+
+**Step 1:** The output data from our JaamSim Semicon Simulation containing 1.4k observations was converted from .txt file format to .xlsx file format using Microsoft Excel.
+
+**Step 2:** The following Excel formulas were applied to all three Excel files containing data of three variations of the Simulation.
+
+- ***Case 1:*** All 5 regions are involved in the system process.
+
+- ***Case 2:*** China is cut off from the system process.
+
+- ***Case 3:*** USA is cut off from the system process.
+
+![](C:/Users/Sam/Desktop/excel_data_wrangling.png)
+
+
+**Step 3:** All three Excel files are exported as .csv files for further data manipulation and statistical analysis in R.
+
+## Loading the data sets:
+
+```{r}
+original <- read.csv('original.csv')
+cut_china <- read.csv('cut_china.csv')
+cut_us <- read.csv('cut_us.csv')
+```
+
+# DATA CLEANING & MANIPULATION
+
+## Filtering data frames by "TRUE" condition:
+
+```{r}
+#install.packages("dplyr") -> for data manipulation
+library(dplyr)
+
+original <- filter(original, Filter.Condition..2 == 'TRUE')
+cut_china <- filter(cut_china, Filter.Condition..2 == 'TRUE')
+cut_us <- filter(cut_us, Filter.Condition..2 == 'TRUE')
+```
+
+## Deleting the "Months" & "Filter.Condition..2" columns:
+
+```{r}
+#install.packages("magrittr") -> to use the pipe operator (%>%)
+library(magrittr)
+
+original <- original %>% dplyr::select(-c(Months, Filter.Condition..2))
+cut_china <- cut_china %>% dplyr::select(-c(Months, Filter.Condition..2))
+cut_us <- cut_us %>% dplyr::select(-c(Months, Filter.Condition..2))
+```
+
+## Renaming "Filter.Condition..2" column name to "Months":
+
+```{r}
+names(original)[6] = "Months"
+names(cut_china)[6] = "Months"
+names(cut_us)[6] = "Months"
+```
+
+## Finding the average profit of the overall system for 3 unique cases:
+
+```{r}
+original$AVG_Original <- rowMeans(original[1:5], na.rm=TRUE)
+cut_china$AVG_Cut_China <- rowMeans(cut_china[1:5], na.rm=TRUE)
+cut_us$AVG_Cut_USA <- rowMeans(cut_us[1:5], na.rm=TRUE)
+```
+
+## Creating a new data frame with the essential data:
+
+```{r}
+df <- data.frame(
+  Months = c(1:121),
+  original$AVG_Original,
+  cut_china$AVG_Cut_China,
+  cut_us$AVG_Cut_USA)
+```
+
+## Renaming the columns:
+
+```{r}
+names(df)[2] = "AVG_Original"
+names(df)[3] = "AVG_Cut_China"
+names(df)[4] = "AVG_Cut_USA"
+```
+
+## Preserving top 120 data points:
+
+We will perform the paired t-test on a data sample consisting of the first 120 months (10 years).
+
+```{r}
+df <- head(df, -1) 
+dim(df)
+```
+
+Since the data used for analysis is generated from a terminating simulation with **"empty-and-idle"** initial conditions, it is important to ensure that the simulation is properly initialized to avoid making any incorrect statistical inferences. 
+
+The following line graphs perfectly illustrate the initial instabilities in the system processes:
+
+```{r}
+#install.packages("ggplot2") -> for data visualizations
+library(ggplot2)
+
+ggplot(df, aes(x = Months, y = AVG_Original)) + geom_line(color="blue") + ggtitle("CASE 1: Average Overall Monthly Profit of the Global Semiconductor Industry")
+
+ggplot(df, aes(x = Months, y = AVG_Cut_China)) + geom_line(color="orange") + ggtitle("CASE 2: China is cut off")
+
+ggplot(df, aes(x = Months, y = AVG_Cut_USA)) + geom_line(color="purple") + ggtitle("CASE 3: USA is cut off")
+```
+
+However, since the data generated is not from a steady-state simulation, we cannot truncate data points using the **Welch's Method**. 
+
+The first few observations containing NULL profit values were removed in Microsoft Excel as an attempt to solve biases related to the "empty-and-idle" initial data values.
+
+![](C:/Users/Sam/Desktop/null_data_values.png)
+
+## Here is the final data frame!
+
+```{r}
+head(df)
+```
+
+# DATA EXPLORATION
+
+The following box plots are used to visualize the spread of the Average Overall Profits for the three cases over the course of 10 years:
+
+```{r}
+ggplot(df) + aes(x = "", y = AVG_Original) + geom_boxplot(fill = "blue") + ggtitle("CASE 1: Boxplot of Average Overall Profit of the Global Semiconductor Industry") + stat_summary(fun.y = "mean", geom = "point", size = 5, color = "white", shape = 3)
+
+ggplot(df) + aes(x = "", y = AVG_Cut_China) + geom_boxplot(fill = "orange") + ggtitle("CASE 2: China is cut off") + stat_summary(fun.y = "mean", geom = "point", size = 5, color = "white", shape = 3)
+
+ggplot(df) + aes(x = "", y = AVG_Cut_USA) + geom_boxplot(fill = "purple") + ggtitle("CASE 3: USA is cut off") + stat_summary(fun.y = "mean", geom = "point", size = 5, color = "white", shape = 3)
+```
+
+The box plots has revealed **10 outliers** which must be removed from the data set.
+
+```{r}
+boxplot(df$AVG_Original, plot = FALSE)$out
+boxplot(df$AVG_Cut_China, plot = FALSE)$out
+boxplot(df$AVG_Cut_USA, plot = FALSE)$out
+
+```
+## Procedure for removing outliers & replacing those data entries with NULL values:
+
+```{r}
+for (x in c('AVG_Original','AVG_Cut_China', 'AVG_Cut_USA'))
+{
+  value = df[,x][df[,x] %in% boxplot.stats(df[,x])$out]
+  df[,x][df[,x] %in% value] = NA
+} 
+```
+
+## Mean of the Average Overall Profits for all three cases:
+
+```{r}
+colMeans(df[,2:4], na.rm = TRUE)
+```
+
+# STATISTICAL TESTS
+
+In order to evaluate if cutting off China or USA has any impact on the overall economy of the global semiconductor industry, we perform the **paired t-test**. This statistical procedure determines if the mean differences of the paired cases are statistically significant.
+
+The average monthly profit of all five regions is used as the **performance measure** to compare the systems.
+
+## Paired t-test Assumptions:
+
+1. Each observation is independent of other observations.
+2. The sample size is adequate with 120 data points per case.
+3. There are no outliers in the data.
+
+Before proceeding with the paired t-test, we must also check if the differences between the pairs are approximately normally distributed.
+
+## Checking for the Assumption of Normality using the Q-Q Plot:
+
+```{r}
+#install.packages("stats") -> to perform statistical calculations and tests
+library(stats) 
+
+difference_OGxCN <- df$AVG_Original - df$AVG_Cut_China
+qqnorm(difference_OGxCN)
+qqline(difference_OGxCN, datax = FALSE, distribution = qnorm, probs = c(0.25, 0.75))
+
+difference_OGxUS <- df$AVG_Original - df$AVG_Cut_USA
+qqnorm(difference_OGxUS)
+qqline(difference_OGxUS, datax = FALSE, distribution = qnorm, probs = c(0.25, 0.75))
+```
+
+Since the data points lie closely to the line for both pairs, the assumption of normality has been met!
+
+## HYPOTHESIS TESTING: Paired t-test for Comparing Systems
+
+```{r} 
+t_test_for_case_1 <- t.test(df$AVG_Original, df$AVG_Cut_China, paired = TRUE, data = df) 
+t_test_for_case_1
+
+t_test_for_case_2 <- t.test(df$AVG_Original, df$AVG_Cut_USA, paired = TRUE, data = df) 
+t_test_for_case_2
+```
+Since our p-values for both cases are greater than the significance level of 0.05, we fail to reject the null hypothesis which states that the true mean difference is equal to 0 for both cases. 
+
+***In other words, neither cutting off China nor cutting off USA has any statistically significant impact on the overall profit of the global semiconductor industry.***
+
+***Therefore, we can infer that the overall economy of the global semiconductor industry is resilient over a decade despite cutting off China & USA from the system.***
+
+## Limitations:
+
+- More research on ways to properly initialize data generated from terminating simulations could have been performed for its implementation in R.
+
+From the line graphs above, we detect "initialization bias" until the first 2 years (24 months). However, reproducing the paired t-test to compare systems still gives the same test results as before. 
+
+**p-value >>> significance level**
+
+## HYPOTHESIS TESTING: Paired t-test after removing the first 2 years data
+
+```{r} 
+new_df <- df[25:120, ]
+
+t_test_for_case_1 <- t.test(new_df$AVG_Original, new_df$AVG_Cut_China, paired = TRUE, data = new_df) 
+t_test_for_case_1
+
+t_test_for_case_2 <- t.test(new_df$AVG_Original, new_df$AVG_Cut_USA, paired = TRUE, data = new_df) 
+t_test_for_case_2
+```
+
+- Averaging the monthly profits might not be the most robust performance measure to assess the overall performance of the global semiconductor industry.
+
+## Appendix:
+
+Another interesting use case of the Semicon Simulation would be to look to the impact of the removal of China & USA on the monthly profits of individual countries. This can be visualized using box plots!
